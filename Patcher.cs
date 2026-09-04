@@ -383,6 +383,43 @@ namespace SynezSAB
 
             string dllName = Path.GetFileName(path);
 
+            // Attempt 1: direct write
+            try
+            {
+                using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
+                fs.Write(data, 0, data.Length);
+                _log.Done("Done");
+                return;
+            }
+            catch (IOException) { }
+            catch (Exception ex) { _log.Error($"Write error: {ex.Message}"); return; }
+
+            // Attempt 2: rename the locked file aside and write new file at original path.
+            // Windows DLL loader opens files with FILE_SHARE_DELETE, so renaming works even
+            // while the DLL is loaded. The running process keeps its mapped copy; the new
+            // file is picked up on next shell restart.
+            if (!killOnConflict)
+            {
+                string displaced = path + $".{DateTime.Now:yyyyMMddHHmmss}.displaced";
+                bool moved = false;
+                try
+                {
+                    File.Move(path, displaced);
+                    moved = true;
+                    File.WriteAllBytes(path, data);
+                    _log.Done("Done (restart explorer/shell for changes to take effect)");
+                    try { File.Delete(displaced); } catch { }
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    if (moved) try { File.Move(displaced, path); } catch { }
+                    _log.Error($"Write failed — {ex.Message}. Try adding --explorer.");
+                    return;
+                }
+            }
+
+            // Attempt 3 (--explorer): retry loop, re-killing whatever reacquires the lock
             for (int attempt = 0; attempt < 15; attempt++)
             {
                 try
@@ -394,11 +431,6 @@ namespace SynezSAB
                 }
                 catch (IOException)
                 {
-                    if (!killOnConflict)
-                    {
-                        _log.Error("Write failed — file is locked. Add --explorer to kill processes holding the DLL.");
-                        return;
-                    }
                     foreach (var proc in Process.GetProcesses())
                     {
                         try
@@ -416,11 +448,7 @@ namespace SynezSAB
                     }
                     System.Threading.Thread.Sleep(200);
                 }
-                catch (Exception ex)
-                {
-                    _log.Error($"Write error: {ex.Message}");
-                    return;
-                }
+                catch (Exception ex) { _log.Error($"Write error: {ex.Message}"); return; }
             }
             _log.Error("Write failed — file still locked after 15 attempts.");
         }
