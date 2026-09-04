@@ -15,20 +15,34 @@ namespace SynezSAB
             }
 
             string arg = args.Length > 0 ? args[0].ToLowerInvariant() : "";
+            bool killExplorer = Array.Exists(args, a => a.Equals("--explorer", StringComparison.OrdinalIgnoreCase));
+            bool silent       = Array.Exists(args, a => a.Equals("--s",        StringComparison.OrdinalIgnoreCase));
 
-            if (arg == "--a") return Activate();
-            if (arg == "--r") return Remove(args.Length > 1 ? args[1] : null);
+            if (arg == "--a") return Activate(killExplorer, silent);
+            if (arg == "--r") return Remove(FindBackupArg(args), killExplorer, silent);
 
             Console.WriteLine("SynezSAB — StartAllBack patcher");
             Console.WriteLine();
-            Console.WriteLine("  --a              Patch StartAllBackX64.dll");
-            Console.WriteLine("  --r [backup.bak] Restore from backup (auto-detect if omitted)");
+            Console.WriteLine("  --a [--explorer] [--s]              Patch StartAllBackX64.dll");
+            Console.WriteLine("  --r [backup.bak] [--explorer] [--s] Restore from backup (auto-detect if omitted)");
+            Console.WriteLine();
+            Console.WriteLine("  --explorer  Kill processes holding the DLL and restart explorer.");
+            Console.WriteLine("              Without it the patcher attempts a direct write (may fail if DLL is locked).");
+            Console.WriteLine("  --s         Silent — no console output (errors still go to stderr).");
             return 0;
         }
 
-        private static int Activate()
+        private static string FindBackupArg(string[] args)
         {
-            var log     = new ConsoleLog();
+            for (int i = 1; i < args.Length; i++)
+                if (!args[i].Equals("--explorer", StringComparison.OrdinalIgnoreCase))
+                    return args[i];
+            return null;
+        }
+
+        private static int Activate(bool killExplorer, bool silent)
+        {
+            var log     = new ConsoleLog(silent);
             var patcher = new Patcher(log);
 
             patcher.ResetTrialReminder();
@@ -36,11 +50,11 @@ namespace SynezSAB
 
             if (!patcher.CheckupIsValid)
             {
-                Console.Error.WriteLine("Checkup failed — aborting.");
+                if (!silent) Console.Error.WriteLine("Checkup failed — aborting.");
                 return 1;
             }
 
-            patcher.Patch(doBackup: true);
+            patcher.Patch(doBackup: true, killExplorer: killExplorer);
             return 0;
         }
 
@@ -68,9 +82,9 @@ namespace SynezSAB
             }
         }
 
-        private static int Remove(string backupPath)
+        private static int Remove(string backupPath, bool killExplorer, bool silent)
         {
-            var log     = new ConsoleLog();
+            var log     = new ConsoleLog(silent);
             var patcher = new Patcher(log);
 
             if (backupPath != null)
@@ -82,9 +96,12 @@ namespace SynezSAB
                 string latest = patcher.FindLatestBackup();
                 if (latest == null)
                 {
-                    Console.Error.WriteLine("No backup (.bak) found next to the DLL, next to this EXE, or in the current directory.");
-                    Console.Error.WriteLine("Either run --activate-patch first (it auto-creates a backup), or supply the path:");
-                    Console.Error.WriteLine("  --remove-patch \"C:\\Program Files\\StartAllBack\\StartAllBackX64.dll.YYYY-MM-DD_HH-MM-SS.bak\"");
+                    if (!silent)
+                    {
+                        Console.Error.WriteLine("No backup (.bak) found next to the DLL, next to this EXE, or in the current directory.");
+                        Console.Error.WriteLine("Either run --a first (it auto-creates a backup), or supply the path:");
+                        Console.Error.WriteLine("  --r \"C:\\Program Files\\StartAllBack\\StartAllBackX64.dll.YYYY-MM-DD_HH-MM-SS.bak\"");
+                    }
                     return 1;
                 }
                 log.Info("Auto-detected backup: ");
@@ -92,7 +109,7 @@ namespace SynezSAB
                 patcher.SetBackupPath(latest);
             }
 
-            patcher.Restore();
+            patcher.Restore(killExplorer: killExplorer);
             return 0;
         }
     }

@@ -22,7 +22,7 @@ Output ends up in `bin/Release/net8.0-windows/win-x64/publish/SynezSAB.exe` — 
 ```
 SynezSAB.exe --a
 ```
-Resets the trial reminder in the registry, checks the DLL, creates a timestamped backup, kills the shell processes that hold the file, patches it, and restarts explorer.
+Resets the trial reminder in the registry, checks the DLL, creates a timestamped backup, and patches it.
 
 **Restore:**
 ```
@@ -32,6 +32,13 @@ Finds the most recent `.bak` next to the DLL and restores it. You can also point
 ```
 SynezSAB.exe --r "C:\Program Files\StartAllBack\StartAllBackX64.dll.2026-09-04_18-31-00.bak"
 ```
+
+**`--explorer` flag (optional, works with both `--a` and `--r`):**
+```
+SynezSAB.exe --a --explorer
+SynezSAB.exe --r --explorer
+```
+Without `--explorer` the patcher attempts a direct write — this works if the DLL isn't currently locked. Add `--explorer` when it is: the patcher will kill any process holding the DLL (usually explorer and the shell), write the file, then restart explorer. Your desktop will flicker for a second.
 
 ---
 
@@ -49,5 +56,5 @@ If your version isn't in the list, the patcher will try to find the license func
 
 ## Notes
 
-- The patcher kills `explorer.exe` and any other shell process that has the DLL open, writes the file, then restarts explorer. Your desktop will flicker for a second.
+- Without `--explorer` the patcher tries a direct write. If the DLL is locked, add `--explorer` — it kills any process holding the file and restarts explorer after.
 - Inspired by [PyPass-SAB](https://github.com/GuillaumeMCK/PyPass-SAB).

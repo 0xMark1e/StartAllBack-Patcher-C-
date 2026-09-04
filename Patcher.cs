@@ -135,7 +135,7 @@ namespace SynezSAB
             }
         }
 
-        public void Patch(bool doBackup)
+        public void Patch(bool doBackup, bool killExplorer = false)
         {
             _log.Banner("Patching");
             if (!CheckupIsValid) { _log.Error("Checkup not valid"); return; }
@@ -143,7 +143,7 @@ namespace SynezSAB
             if (doBackup) CreateBackup();
 
             byte[] data = ReadFile(_filePath);
-            KillDllUsers();
+            if (killExplorer) KillDllUsers();
             _log.Info("Patching... ");
 
             try
@@ -167,25 +167,25 @@ namespace SynezSAB
             catch (Exception ex)
             {
                 _log.Error($"Error: {ex.Message}");
-                if (doBackup) Restore();
-                StartExplorer();
+                if (doBackup) Restore(killExplorer);
+                if (killExplorer) StartExplorer();
                 return;
             }
 
-            WriteFile(_filePath, data);
+            WriteFile(_filePath, data, killExplorer);
 
             if (CheckResult.IsOriginal)
             {
                 _log.Info("Verifying hash... ");
                 string newHash = ComputeHash(_filePath);
                 if (newHash == CheckResult.PatchedHash) _log.Done("OK");
-                else { _log.Error("Hash mismatch"); if (doBackup) Restore(); }
+                else { _log.Error("Hash mismatch"); if (doBackup) Restore(killExplorer); }
             }
 
-            StartExplorer();
+            if (killExplorer) StartExplorer();
         }
 
-        public void Restore()
+        public void Restore(bool killExplorer = false)
         {
             _log.Banner("Restore backup");
             if (_backupFilePath == null)
@@ -193,10 +193,10 @@ namespace SynezSAB
                 _log.Error("No backup path set.");
                 return;
             }
-            KillDllUsers();
+            if (killExplorer) KillDllUsers();
             _log.Info("Restoring... ");
-            WriteFile(_filePath, ReadFile(_backupFilePath));
-            StartExplorer();
+            WriteFile(_filePath, ReadFile(_backupFilePath), killExplorer);
+            if (killExplorer) StartExplorer();
         }
 
         public void ResetTrialReminder()
@@ -368,9 +368,8 @@ namespace SynezSAB
             catch (Exception ex) { _log.Error($"Read error: {ex.Message}"); throw; }
         }
 
-        private void WriteFile(string path, byte[] data)
+        private void WriteFile(string path, byte[] data, bool killOnConflict = false)
         {
-            // Clear read-only flag once upfront
             try
             {
                 if (File.Exists(path))
@@ -384,8 +383,6 @@ namespace SynezSAB
 
             string dllName = Path.GetFileName(path);
 
-            // Retry loop: each failed write re-scans and kills whatever process
-            // grabbed the lock again (e.g. auto-restarted explorer).
             for (int attempt = 0; attempt < 15; attempt++)
             {
                 try
@@ -397,7 +394,11 @@ namespace SynezSAB
                 }
                 catch (IOException)
                 {
-                    // Kill whoever reacquired the lock and try again
+                    if (!killOnConflict)
+                    {
+                        _log.Error("Write failed — file is locked. Add --explorer to kill processes holding the DLL.");
+                        return;
+                    }
                     foreach (var proc in Process.GetProcesses())
                     {
                         try
